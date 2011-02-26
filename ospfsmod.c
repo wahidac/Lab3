@@ -501,6 +501,7 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
                              break;
                          default: //FIX:return some error number
                              eprintk("Invalid Directory Entry Type!");
+                             return -EINVAL;
                      }
                      ok_so_far = filldir(dirent, od->od_name, strlen(od->od_name), f_pos, od->od_ino, entry_type);
                      if( ok_so_far < 0 )
@@ -621,7 +622,8 @@ allocate_block(void)
 static void
 free_block(uint32_t blockno)
 {
-	/* EXERCISE: Your code here */
+    uint32_t* free_block_bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
+    bitvector_set(free_block_bitmap,blockno);
 }
 
 
@@ -1090,10 +1092,41 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
 //
 //   EXERCISE: Complete this function.
 
+
+//FIX: how to test this: create a hard link for an existing file. check if it works
+//also, try changing certain fields in this function to observe behavioral change in ln
+
+
+//FIX: do we need to check whether user is trying to create a hardlink to a directory (not allowed)?
 static int
 ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dentry) {
-	/* EXERCISE: Your code here. */
-	return -EINVAL;
+    uint32_t destination_inode = src_dentry->d_inode->i_ino; //Inode you want to link to
+    ospfs_inode_t *containing_directory = ospfs_inode(dir->i_ino);
+    ospfs_inode_t *target;
+
+    //Does directory entry w/ same filename field already exist??
+    if(find_direntry(containing_directory, dst_dentry->d_name.name, dst_dentry->d_name.len))
+        return -EEXIST;
+
+    //Add empty directory entry to the containing directory
+    ospfs_direntry_t  *new_dir_entry = create_blank_direntry(containing_directory);
+    if(IS_ERR(new_dir_entry))
+        return PTR_ERR(new_dir_entry);
+       
+    //Set name of directory entry to correspond to that of the file you want to find 
+    if(dst_dentry->d_name.len > OSPFS_MAXNAMELEN)
+        return -ENAMETOOLONG;
+
+    memcpy(new_dir_entry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
+    new_dir_entry->od_ino = destination_inode;
+    dst_dentry->d_inode->i_ino = destination_inode;
+
+
+    //Find inode that corresponds to the relevant file to update link count
+    target = ospfs_inode(destination_inode);
+    target->oi_nlink++;
+  
+    return 0;
 }
 
 // ospfs_create
