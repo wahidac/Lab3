@@ -420,6 +420,7 @@ ospfs_dir_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *ign
 //
 //   EXERCISE: Finish implementing this function.
 
+
 static int
 ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
@@ -473,17 +474,17 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		 */
 
                  //Subtract 2 to compensate for '.' and '..'  
-                 int entry_off = ( f_pos - 2 ) * OSPFS_DIRENTRY_SIZE;
+                 int entry_off = ( f_pos - 2 );
                  int entry_type;
 
                  //entry_off represents the offset in bytes within inode dir_oi
 
-                 if(entry_off > dir_oi->oi_size) {
+                 if(entry_off >= dir_oi->oi_size) {
                      r = 1;
                      break;
                  }
 
-		 od = (ospfs_direntry_t*) ospfs_inode_data(dir_oi, entry_off);
+		 od = ospfs_inode_data(dir_oi, entry_off);
 
 		 if (od->od_ino > 0 ) { //If non-blank directory entry
                      entry_oi = ospfs_inode(od->od_ino);
@@ -506,7 +507,7 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
                          break;
                  }
 
-                 f_pos++;
+                 f_pos += OSPFS_DIRENTRY_SIZE;
 	}
 
 	// Save the file position and return!
@@ -583,8 +584,26 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 static uint32_t
 allocate_block(void)
 {
-	/* EXERCISE: Your code here */
-	return 0;
+        uint32_t free_block = 0;
+        int bit = 0;
+        uint32_t* free_block_bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
+        int bitmap_blk_size = ospfs_super->os_firstinob - OSPFS_FREEMAP_BLK; //How many bitmap blocks
+        int num_bits = bitmap_blk_size * OSPFS_BLKSIZE * 8; //Number of bits in bitmap
+
+        while( bit < num_bits ) {
+            free_block = bitvector_test(free_block_bitmap, bit);
+            if(free_block)
+                break;
+            else 
+                bit++;
+        }
+
+        if(free_block) {//If while loop above yielded a free block 
+            bitvector_clear(free_block_bitmap, bit); //Allocate the block corresponding to bit        
+            free_block = bit;
+        }
+
+	return free_block;
 }
 
 
