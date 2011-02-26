@@ -619,6 +619,8 @@ allocate_block(void)
 //   number isn't obviously bogus: the boot sector, superblock, free-block
 //   bitmap, and inode blocks must never be freed.  But this is not required.)
 
+//FIX: test to make sure this works
+
 static void
 free_block(uint32_t blockno)
 {
@@ -1059,8 +1061,28 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
 	//    Use ERR_PTR if this fails; otherwise, clear out all the directory
 	//    entries and return one of them.
 
-	/* EXERCISE: Your code here. */
-	return ERR_PTR(-EINVAL); // Replace this line
+        //Iterate until you find an empty directory
+        int off;
+        for (off = 0; off < dir_oi->oi_size; off += OSPFS_DIRENTRY_SIZE) {
+		ospfs_direntry_t *od = ospfs_inode_data(dir_oi, off);
+		if (!od->od_ino) //Found an empty directory entry
+                    return od;
+	}
+
+        //No free directory. Need to allocate memory for one.
+        int success = add_block(dir_oi);
+        if(success < 0) //Could not free anymore blocks
+            return ERR_PTR(-success);
+
+        //FIX: make sure that add_block function zeroes everything out!!!
+        ospfs_direntry_t *od = ospfs_inode_data(dir_oi, off); 
+        
+        //The very first directory entry in the newly allocated block should be empty
+        if(od->od_ino) {
+            eprintk("Newly allocated directory entry not zeroed out properly!!");
+            return ERR_PTR(-EIO);
+        } else 
+            return od;
 }
 
 // ospfs_link(src_dentry, dir, dst_dentry
