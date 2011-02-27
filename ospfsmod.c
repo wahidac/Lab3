@@ -749,6 +749,10 @@ add_block(ospfs_inode_t *oi)
 	// current number of blocks in file
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
 
+	// If our file system is corrupted somehow then return an I/O error.
+	if(n < 0)
+		return -EIO;
+
 	// keep track of allocations to free in case of -ENOSPC
 	uint32_t *allocated[3] = { 0, 0, 0};
 
@@ -773,7 +777,11 @@ add_block(ospfs_inode_t *oi)
 	}
 	// Next, we check if we can add a block to our indirect block pointer.
 	else if(n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
-		
+
+		// Check to see if a valid index was returned.
+		if(direct_index(n) < 0)
+			return -EIO;
+
 		// Check to see whether or not there exists an indirect block pointer.
 		if(oi->oi_indirect) {
 
@@ -788,7 +796,7 @@ add_block(ospfs_inode_t *oi)
 
 				// Set the direct block inode number accordingly.
 				uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect);
-				indir_block_contents[dir_index(n)] = (uint32_t) allocated[0];
+				indir_block_contents[direct_index(n)] = (uint32_t) allocated[0];
 			}
 			else
 				return -ENOSPC;
@@ -820,7 +828,7 @@ add_block(ospfs_inode_t *oi)
 
 					// Set the direct block inode number accordingly.
 					uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect);
-					indir_block_contents[dir_index(n)] = (uint32_t) allocated[1];
+					indir_block_contents[direct_index(n)] = (uint32_t) allocated[1];
 				}
 				// Otherwise, we must undo allocation of our indirect block.
 				else {
@@ -834,11 +842,20 @@ add_block(ospfs_inode_t *oi)
 	// Lastly, we check if we can add add an indirect block to our doubly-indirect block pointer.
 	else if(n < OSPFS_MAXFILEBLKS) {
 
+		// Check to see if a valid index was returned.
+		if(indir_index(n) < 0 || direct_index(n) < 0) 
+			return -EIO;
+
 		// Check to see whether or not there exists a doubly-indirect block pointer.
 		if(oi->oi_indirect2) {
 		
 			// Check if the indirect block pointer exists or not.
 			uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect2);
+
+			// Check to see if a valid index was returned.
+			if(indir_index(n) < 0) 
+				return -EIO;
+
 			if(indir_block_contents[indir_index(n)]) {
 				
 				// Create a new direct block.
@@ -852,7 +869,7 @@ add_block(ospfs_inode_t *oi)
 
 					// Set the direct block accordingly.
 					uint32_t *dir_block_contents = (uint32_t *) ospfs_block(indir_block_contents[indir_index(n)]);		
-					dir_block_contents[dir_index(n)] = (uint32_t) allocated[0];
+					dir_block_contents[direct_index(n)] = (uint32_t) allocated[0];
 				}
 				else 
 					return -ENOSPC;
@@ -876,7 +893,6 @@ add_block(ospfs_inode_t *oi)
 					free_block(allocated[0]);
 					indir_block_contents[indir_index(n)] = 0;
 					return -ENOSPC;
-				
 				}
 				else {
 						
@@ -885,7 +901,7 @@ add_block(ospfs_inode_t *oi)
 
 					// Set the direct block accordingly.
 					uint32_t *dir_block_contents = (uint32_t *) ospfs_block(allocated[0]);
-					dir_block_contents[dir_index(n)] = (uint32_t) allocated[1];
+					dir_block_contents[direct_index(n)] = (uint32_t) allocated[1];
 				}
 			}
 		}
@@ -928,9 +944,12 @@ add_block(ospfs_inode_t *oi)
 
 						// Set the direct block accordingly.
 						uint32_t *dir_block_contents = (uint32_t *) ospfs_block(allocated[1]);		
-						dir_block_contents[dir_index(n)] = (uint32_t) allocated[2];
+						dir_block_contents[direct_index(n)] = (uint32_t) allocated[2];
 					}
 					else {
+		
+						// If allocation fails here, we must free both the indirect block and doubly
+						// indirect block pointers.
 						free_block(allocated[0]);
 						free_block(allocated[1]);
 						oi->oi_indirect2 = 0;
@@ -945,9 +964,8 @@ add_block(ospfs_inode_t *oi)
 				}
 			}
 		}
-
 	}
-	// Otherwise, there is no space left in this inode.
+	// Otherwise, we indicate a different type of error not related to insufficient space.
 	else 
 		return -EIO;
 
@@ -987,8 +1005,86 @@ remove_block(ospfs_inode_t *oi)
 	// current number of blocks in file
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
 
-	/* EXERCISE: Your code here */
-	return -EIO; // Replace this line
+	// Check if file system is corrupted or if it's empty, before doing any removal.
+	if(n <= 0) 
+		return -EIO;
+
+	// Here, we handle the case where the last allocated block was using the 
+	// direct block array.
+	if(indir_index(n - 1) < 0){
+		
+		// We remove block n by freeing the block and setting the
+		// direct block pointer entry to 0.
+		free_block(oi->oi_direct[n - 1]);
+		oi->oi_direct[n - 1] = 0;
+	}
+	// Here, we handle the case where the last allocated block was through the
+	// indirect block pointer.
+	else if(indir2_index(n - 1) < 0 ) {
+		
+		// Check for valid index into direct block or if
+		// indirect block pointer doesn't exist.
+		if(direct_index(n - 1) < 0 || !oi->oi_indirect)
+			return -EIO;
+		
+		// We must remove the direct block associated to the indirect block pointer.
+		uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect);
+		free_block(indir_block_contents[direct_index(n - 1)]);
+		indir_block_contents[direct_index(n - 1)] = 0;
+
+		// It's necessary to check if we should delloacate this indirect block pointer
+		// if it happens to become empty after removing a block.
+		if(!indir_index(n - 1)) {
+			free_block(oi->oi_indirect);
+			oi->oi_indirect = 0;
+		}
+	}
+	// Here, we handle the case where the last allocated block was through the
+	// doubly-indirect block pointer.
+	else if(indir_index(n - 1) >= 0) {
+	
+		// First, we need to check for valid indexing into indirect
+		// and direct block pointers.
+		if(indir_index(n) < 0 || direct_index(n) < 0) 
+			return -EIO;
+		
+		// Next, we must check if the doubly-indirect pointer exists.
+		if(!oi->oi_indirect2)
+			return -EIO;
+		
+		// Now, we can proceed to removing a direct block.
+		uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect2);
+		uint32_t *dir_block_contents = (uint32_t *) ospfs_block(indir_block_contents[indir_index(n - 1)]);
+		free_block(dir_block_contents[direct_index(n - 1)]);
+		dir_block_contents[direct_index(n - 1)] = 0;
+
+		// After removing a direct block, we need to check if this removal caused either 
+		// a doubly-indirect block or indirect block pointer points to nothing.  If so,
+		// we deallocate that block pointer.
+		if(!direct_index(n - 1)) {
+			free_block(oi->oi_indirect);
+			oi->oi_indirect = 0;
+	
+			// Check to see if this block was the last one pointed to by the doubly-indirect block pointer.
+			if(!indir_index(n - 1)) {
+				free_block(oi->oi_indirect2);
+				oi->oi_indirect2 = 0;
+			}
+		} 
+	}
+	// Indicate that we encountered an error not related to insufficient space.
+	else
+		return -EIO;
+
+	// We need to update our inode size.
+
+	if(oi->oi_size % OSPFS_BLKSIZE)
+		oi->oi_size -= oi->oi_size % OSPFS_BLKSIZE;
+	else
+		oi->oi_size -= OSPFS_BLKSIZE;
+
+	// Return 0 to indicate a successful removal of a block.
+	return 0;
 }
 
 
@@ -1034,18 +1130,50 @@ change_size(ospfs_inode_t *oi, uint32_t new_size)
 	uint32_t old_size = oi->oi_size;
 	int r = 0;
 
+	// Here, we attempt to add blocks to our inode until it matches the new size.
 	while (ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
-	        /* EXERCISE: Your code here */
-		return -EIO; // Replace this line
-	}
-	while (ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
-	        /* EXERCISE: Your code here */
-		return -EIO; // Replace this line
-	}
+	
+		// We add one block at a time to our inode.
+		r = add_block(oi);				
+		
+		// If there is not enough space, then we must shrink the file until
+		// it matches the original file size.
+		if(r == -ENOSPC) {
+		
+			// Remove one block at a time until we are back to our
+			// original file size.	
+			while(oi->oi_size > old_size) {
+				r = remove_block(oi);
+	
+				// If we encounter an error while removing, return that
+				// error.
+				if(r)
+					return r;
+			}
+			return -ENOSPC;
+		} 
 
-	/* EXERCISE: Make sure you update necessary file meta data
-	             and return the proper value. */
-	return -EIO; // Replace this line
+		// Return any other type of error: e.g. -EIO.
+		if(r < 0)
+			return r;
+	}
+	
+	// Here, we continue to remove blocks to our inode until it matches the new size.
+	while (ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
+		
+		// We remove one block at a time to our inode.
+		r = remove_block(oi);
+		
+		// check if attempting to remove a block caused an errors.
+		if(r < 0) 
+			return r;
+	}
+	
+	// We need to change size field of metadata of the file.
+	oi->oi_size = new_size; 
+
+	// Return 0 indicating successful change of file size.
+	return 0; 
 }
 
 
