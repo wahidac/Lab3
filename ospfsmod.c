@@ -1143,9 +1143,7 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
     new_dir_entry->od_name[dst_dentry->d_name.len] = '\0';
     new_dir_entry->od_ino = destination_inode;
 
-    //FIX: THIS IS WRONG! NEED TO USE mk_linux func or whatever that function is
-    dst_dentry->d_inode->i_ino = destination_inode;
-
+    //FIX: how do we alter field in dentry???? using linux_mk_something or whatever it is?
 
     //Find inode that corresponds to the relevant file to update link count
     target = ospfs_inode(destination_inode);
@@ -1231,7 +1229,7 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 {       
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
         ospfs_inode_t *containing_directory = ospfs_inode(dir->i_ino);
-        ospfs_inode_t *entry_oi;
+        ospfs_symlink_inode_t *entry_oi;
 
 
         //Is the name of the file to create too large? is symname too long?
@@ -1266,27 +1264,24 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
         entry_oi->oi_size = strlen(symname);
         entry_oi->oi_ftype = OSPFS_FTYPE_SYMLINK;
         entry_oi->oi_nlink = 1;
-
         //FIX: MAKE SURE THAT symname is indeed NULL terminated!!!!
         strcpy(entry_oi->oi_symlink, symname);
 
         //Now populate the directory entry
         new_dir_entry->od_ino = entry_ino;
-        memcpy(new_dir_entry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
+        memcpy(new_dir_entry->od_name, dentry->d_name.name, dentry->d_name.len);
         //FIX: make sure NULL termination works here!!
-        new_dir_entry->od_name[dst_dentry->d_name.len] = '\0';
+        new_dir_entry->od_name[dentry->d_name.len] = '\0';
     
 
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
 	   getting here. */
-	{
-		struct inode *i = ospfs_mk_linux_inode(dir->i_sb, entry_ino);
-		if (!i)
-			return -ENOMEM;
-		d_instantiate(dentry, i);
-		return 0;
-	}
+        struct inode *i = ospfs_mk_linux_inode(dir->i_sb, entry_ino);
+	if (!i)
+            return -ENOMEM;
+        d_instantiate(dentry, i);
+            return 0;
 }
 
 
