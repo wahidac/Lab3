@@ -1502,14 +1502,15 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
     if(IS_ERR(new_dir_entry))
         return PTR_ERR(new_dir_entry);
        
-    //Set name of directory entry to correspond to that of the file you want to find 
     if(dst_dentry->d_name.len > OSPFS_MAXNAMELEN)
         return -ENAMETOOLONG;
 
     memcpy(new_dir_entry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
+    //FIX: make sure NULL termination works here!!
+    new_dir_entry->od_name[dst_dentry->d_name.len] = '\0';
     new_dir_entry->od_ino = destination_inode;
-    dst_dentry->d_inode->i_ino = destination_inode;
 
+    //FIX: how do we alter field in dentry???? using linux_mk_something or whatever it is?
 
     //Find inode that corresponds to the relevant file to update link count
     target = ospfs_inode(destination_inode);
@@ -1592,23 +1593,62 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 
 static int
 ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
-{
+{       
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
-	uint32_t entry_ino = 0;
+        ospfs_inode_t *containing_directory = ospfs_inode(dir->i_ino);
+        ospfs_symlink_inode_t *entry_oi;
 
-	/* EXERCISE: Your code here. */
-	return -EINVAL;
+
+        //Is the name of the file to create too large? is symname too long?
+        if( dentry->d_name.len > OSPFS_MAXNAMELEN ||
+            strlen(symname) > OSPFS_MAXSYMLINKLEN )
+            return -ENAMETOOLONG;
+
+        //Does directory entry w/ same filename field already exist??
+        if(find_direntry(containing_directory, dentry->d_name.name, dentry->d_name.len))
+            return -EEXIST;
+
+        //Find a free inode 
+        uint32_t entry_ino;
+        for( entry_ino = 0 ; entry_ino < ospfs_super->os_ninodes ; entry_ino++ ) {
+            entry_oi = ospfs_inode(entry_ino);
+            if(!entry_oi->oi_nlink) //Free if no links to the inode
+                break;
+        }
+
+        if( entry_ino == ospfs_super->os_ninodes ) //No more free inodes
+            return -ENOSPC;
+
+        //Find a free directory entry 
+        ospfs_direntry_t  *new_dir_entry = create_blank_direntry(containing_directory);
+
+        if(IS_ERR(new_dir_entry))
+            return PTR_ERR(new_dir_entry);
+
+        //If we have both a free directory entry, and inode, populate the two structures
+
+        //Populate the inode
+        entry_oi->oi_size = strlen(symname);
+        entry_oi->oi_ftype = OSPFS_FTYPE_SYMLINK;
+        entry_oi->oi_nlink = 1;
+        //FIX: MAKE SURE THAT symname is indeed NULL terminated!!!!
+        strcpy(entry_oi->oi_symlink, symname);
+
+        //Now populate the directory entry
+        new_dir_entry->od_ino = entry_ino;
+        memcpy(new_dir_entry->od_name, dentry->d_name.name, dentry->d_name.len);
+        //FIX: make sure NULL termination works here!!
+        new_dir_entry->od_name[dentry->d_name.len] = '\0';
+    
 
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
 	   getting here. */
-	{
-		struct inode *i = ospfs_mk_linux_inode(dir->i_sb, entry_ino);
-		if (!i)
-			return -ENOMEM;
-		d_instantiate(dentry, i);
-		return 0;
-	}
+        struct inode *i = ospfs_mk_linux_inode(dir->i_sb, entry_ino);
+	if (!i)
+            return -ENOMEM;
+        d_instantiate(dentry, i);
+            return 0;
 }
 
 
