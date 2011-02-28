@@ -420,10 +420,35 @@ ospfs_dir_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *ign
 //
 //   EXERCISE: Finish implementing this function.
 
+static int
+add_block(ospfs_inode_t *oi);
+
 
 static int
 ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
+
+       /* Begin testing code */
+    //   //size changed? blocks in bitmap changed?
+       int block;
+       struct inode *de = filp->f_dentry->d_inode;
+       ospfs_inode_t *oi = ospfs_inode(de->i_ino);
+       
+       block = add_block(oi);
+  //     printk("Allocated block
+
+
+
+
+
+
+
+
+
+
+        /* End testing code */
+
+
 	struct inode *dir_inode = filp->f_dentry->d_inode;
 	ospfs_inode_t *dir_oi = ospfs_inode(dir_inode->i_ino);
 	uint32_t f_pos = filp->f_pos;
@@ -660,8 +685,9 @@ free_block(uint32_t blockno)
 
 static int32_t
 indir2_index(uint32_t b)
-{
-	if(b >= OSPFS_NDIRECT + OSPFS_NINDIRECT && b < OSPFS_MAXFILEBLKS - 1)
+{       //FIX: why is it OSPFS_MAXFILKEBLKS -1 ??? why not just OSPFS_MAXFILEBLKS
+	//if(b >= OSPFS_NDIRECT + OSPFS_NINDIRECT && b < OSPFS_MAXFILEBLKS - 1)
+        if(b >= OSPFS_NDIRECT + OSPFS_NINDIRECT && b < OSPFS_MAXFILEBLKS)
 		return 0;
 	else 		
 		return -1;
@@ -683,9 +709,12 @@ static int32_t
 indir_index(uint32_t b)
 {
 	if(b >= OSPFS_NDIRECT && b < OSPFS_NINDIRECT + OSPFS_NDIRECT)
-		return 0; 
-	else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS - 1)
-		return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) / OSPFS_NINDIRECT;
+		return 0;  //FIX: why is it OSPFS_MAXFILEBLKS - 1???
+//	else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS - 1) 
+        else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
+                //FIX: arithmetic precedence ahhhhhhhh!!!
+		//return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) / OSPFS_NINDIRECT;
+                return ( b - (OSPFS_NINDIRECT + OSPFS_NDIRECT) )/ OSPFS_NINDIRECT;
 	else
 		return -1;
 }
@@ -707,8 +736,13 @@ direct_index(uint32_t b)
 		return b;
 	else if(b >= OSPFS_NDIRECT && b < OSPFS_NINDIRECT + OSPFS_NDIRECT)
 		return b - OSPFS_NDIRECT;
-	else if(b > OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
-		return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) % OSPFS_NDIRECT + OSPFS_NINDIRECT;
+        //FIX: wrong inequaltiy ahhhhhhh!!! 
+	//else if(b > OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
+        else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
+        //FIX: arithmetic precedence ahhhhhhhh!!
+		//return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) % OSPFS_NDIRECT + OSPFS_NINDIRECT;
+                return ( b - ( OSPFS_NINDIRECT + OSPFS_NDIRECT ) ) 
+                            % ( OSPFS_NINDIRECT + OSPFS_NDIRECT );
 	else
 		return -1;
 }
@@ -756,17 +790,22 @@ add_block(ospfs_inode_t *oi)
 		return -EIO;
 
 	// keep track of allocations to free in case of -ENOSPC
-	uint32_t *allocated[3] = { 0, 0, 0};
-
+	//uint32_t *allocated[3] = { 0, 0, 0};
+        //FIX: why would we want allocated to store a pointer??? allocate_block DOES NOT return one!!
+        uint32_t allocated[3] = { 0, 0, 0};
 	// First, we check to see if we can add a direct block.
 	if(n < OSPFS_NDIRECT) {
 		
 		// Attempt to allocate a new block.
 		allocated[0] = allocate_block();
+
+                printk("Allocated this:%u\n",allocated[0]);
 		
 		// Return error indicating no space left if allocation failed.
-		if(!allocated[0])
+		if(!allocated[0]) {
+                        printk("NOOO! OUT OF ROOM!"); //FIX:Remove in final
 			return -ENOSPC;
+                }
 		// Otherwise, we add our new block.
 		else {
 					
@@ -781,8 +820,10 @@ add_block(ospfs_inode_t *oi)
 	else if(n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
 
 		// Check to see if a valid index was returned.
-		if(direct_index(n) < 0)
+		if(direct_index(n) < 0) {
+                        printk("NEE"); //FIX:remove me
 			return -EIO;
+                }
 
 		// Check to see whether or not there exists an indirect block pointer.
 		if(oi->oi_indirect) {
@@ -800,8 +841,10 @@ add_block(ospfs_inode_t *oi)
 				uint32_t *indir_block_contents = (uint32_t *) ospfs_block(oi->oi_indirect);
 				indir_block_contents[direct_index(n)] = (uint32_t) allocated[0];
 			}
-			else
+			else   { 
+                                printk("YEE"); //FIX:Remove me
 				return -ENOSPC;
+                        }
 		}
 		// Otherwise, we allocate a new indirect block.
 		else {
@@ -843,6 +886,7 @@ add_block(ospfs_inode_t *oi)
 	}
 	// Lastly, we check if we can add add an indirect block to our doubly-indirect block pointer.
 	else if(n < OSPFS_MAXFILEBLKS) {
+               //FIX:sufficient checkts?
 
 		// Check to see if a valid index was returned.
 		if(indir_index(n) < 0 || direct_index(n) < 0) 
@@ -871,6 +915,7 @@ add_block(ospfs_inode_t *oi)
 
 					// Set the direct block accordingly.
 					uint32_t *dir_block_contents = (uint32_t *) ospfs_block(indir_block_contents[indir_index(n)]);		
+
 					dir_block_contents[direct_index(n)] = (uint32_t) allocated[0];
 				}
 				else 
@@ -1036,7 +1081,10 @@ remove_block(ospfs_inode_t *oi)
 
 		// It's necessary to check if we should delloacate this indirect block pointer
 		// if it happens to become empty after removing a block.
-		if(!indir_index(n - 1)) {
+
+                //FIX: Why would we want to do this??
+		//if(!indir_index(n - 1)) {
+                if(indir_index(n-2) < 0) { //After removing block, still need indirect block?
 			free_block(oi->oi_indirect);
 			oi->oi_indirect = 0;
 		}
@@ -1047,7 +1095,10 @@ remove_block(ospfs_inode_t *oi)
 	
 		// First, we need to check for valid indexing into indirect
 		// and direct block pointers.
-		if(indir_index(n) < 0 || direct_index(n) < 0) 
+                //FIX: why would we check whether 'n' value is valid? and not n-1?
+		//if(indir_index(n) < 0 || direct_index(n) < 0)
+                 if(indir_index(n-1) < 0 || direct_index(n-1) < 0)
+
 			return -EIO;
 		
 		// Next, we must check if the doubly-indirect pointer exists.
@@ -1063,6 +1114,9 @@ remove_block(ospfs_inode_t *oi)
 		// After removing a direct block, we need to check if this removal caused either 
 		// a doubly-indirect block or indirect block pointer points to nothing.  If so,
 		// we deallocate that block pointer.
+
+                //FIX: why would we make this check?? need a different one
+
 		if(!direct_index(n - 1)) {
 			free_block(oi->oi_indirect);
 			oi->oi_indirect = 0;
