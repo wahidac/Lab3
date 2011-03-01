@@ -418,51 +418,10 @@ ospfs_dir_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *ign
 //   Returns: 1 at end of directory, 0 if filldir returns < 0 before the end
 //     of the directory, and -(error number) on error.
 //
-//   EXERCISE: Finish implementing this function.
-
-
-//FIX:remove these
-/*
-static int
-add_block(ospfs_inode_t *oi);
-static uint32_t
-allocate_block(void);
-static void
-free_block(uint32_t blockno);
-static int
-remove_block(ospfs_inode_t *oi);
-static int
-change_size(ospfs_inode_t *oi, uint32_t new_size);
-*/
-
 
 static int
 ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
-
-       //FIX: testing code
-
-       /* Begin testing code */
-  /*
-       int block;
-       struct inode *de = filp->f_dentry->d_inode;
-       ospfs_inode_t *oi = ospfs_inode(de->i_ino);
-      
-       change_size(oi,43);
-       printk("Size of directory before add_block:%d\n",oi->oi_size);
-       block = add_block(oi);
-       printk("Size of directory after add_block:%d\n",oi->oi_size);
-       change_size(oi,3072);
-       printk("Size of directory after change_size:%d\n",oi->oi_size);
-       remove_block(oi);
-       printk("Size of directory after remove_block:%d\n\n",oi->oi_size);
-      // int a = allocate_block();
-     //  free_block(a);
-     //  free_block(block)
-  //     printk("Allocated block
-*/
-        /* End testing code */
-
 
 	struct inode *dir_inode = filp->f_dentry->d_inode;
 	ospfs_inode_t *dir_oi = ospfs_inode(dir_inode->i_ino);
@@ -889,7 +848,6 @@ add_block(ospfs_inode_t *oi)
 	}
 	// Lastly, we check if we can add add an indirect block to our doubly-indirect block pointer.
 	else if(n < OSPFS_MAXFILEBLKS) {
-               //FIX:sufficient checkts?
 
 		// Check to see if a valid index was returned.
 		if(indir_index(n) < 0 || direct_index(n) < 0) 
@@ -1578,12 +1536,6 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
 //
 //   EXERCISE: Complete this function.
 
-
-//FIX: how to test this: create a hard link for an existing file. check if it works
-//also, try changing certain fields in this function to observe behavioral change in ln
-
-
-//FIX: do we need to check whether user is trying to create a hardlink to a directory (not allowed)?
 static int
 ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dentry) {
     uint32_t destination_inode = src_dentry->d_inode->i_ino; //Inode you want to link to
@@ -1603,11 +1555,9 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
         return -ENAMETOOLONG;
 
     memcpy(new_dir_entry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
-    //FIX: make sure NULL termination works here!!
     new_dir_entry->od_name[dst_dentry->d_name.len] = '\0';
     new_dir_entry->od_ino = destination_inode;
 
-    //FIX: how do we alter field in dentry???? using linux_mk_something or whatever it is?
 
     //Find inode that corresponds to the relevant file to update link count
     target = ospfs_inode(destination_inode);
@@ -1774,13 +1724,11 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
         entry_oi->oi_size = strlen(symname);
         entry_oi->oi_ftype = OSPFS_FTYPE_SYMLINK;
         entry_oi->oi_nlink = 1;
-        //FIX: MAKE SURE THAT symname is indeed NULL terminated!!!!
         strcpy(entry_oi->oi_symlink, symname);
 
         //Now populate the directory entry
         new_dir_entry->od_ino = entry_ino;
         memcpy(new_dir_entry->od_name, dentry->d_name.name, dentry->d_name.len);
-        //FIX: make sure NULL termination works here!!
         new_dir_entry->od_name[dentry->d_name.len] = '\0';
     
 
