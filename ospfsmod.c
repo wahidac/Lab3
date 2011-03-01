@@ -1618,6 +1618,10 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
 	uint32_t entry_ino = 0;
 
+	// Check if directory's inode exists or dentry file exists.
+	if(!dir_oi || !dentry)
+		return -EIO;
+
 	// Here, we call our helper function find_direntry to see if there already exists
 	// a directory entry with the same file name.
 	ospfs_direntry_t *dir_entry = find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len);
