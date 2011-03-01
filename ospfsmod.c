@@ -1649,7 +1649,12 @@ static int
 ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd)
 {
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
+        ospfs_inode_t *entry_oi;
 	uint32_t entry_ino = 0;
+
+      	// Check if directory entry name is too long.
+	if(dentry->d_name.len > OSPFS_MAXNAMELEN)
+		return -ENAMETOOLONG;
 
 	// Check if directory's inode exists or dentry file exists.
 	if(!dir_oi || !dentry)
@@ -1657,12 +1662,8 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 
 	// Here, we call our helper function find_direntry to see if there already exists
 	// a directory entry with the same file name.
-	ospfs_direntry_t *dir_entry = find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len);
-
-	// Check the return value of find_direntry.  NULL value indicates it already exists.
-	// In this case, we return an -EEXIST error.
-	if(!dir_entry)
-		return -EEXIST;
+	if(find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len))
+            return -EEXIST;
 
 	// We attempt to find an empty directory entry using the function create_blank_direntry.
 	ospfs_direntry_t *od = create_blank_direntry(dir_oi);	
@@ -1671,30 +1672,29 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 
 	// Find an empty inode. 
         for(entry_ino = 0 ; entry_ino < ospfs_super->os_ninodes ; entry_ino++ ) {
-        	if(!(ospfs_inode(entry_ino)->oi_nlink)) 
-                	break;
+        	entry_oi = ospfs_inode(entry_ino);
+                if(!entry_oi->oi_nlink) //Free if no links to the inode
+                    break;
         }
 
 	// Check if file system is currently full.
 	if(entry_ino == ospfs_super->os_ninodes)
 		return -ENOSPC;
-	
+
+        //We now have a free inode and a free directory entry. Populate them
+
+        //Populate the directory entry
+
 	// Set 'entry_ino' variable to its inode number.
-	dir_entry->od_ino = entry_ino;
-
-	// Check if directory entry name is too long.
-	if(dentry->d_name.len > OSPFS_MAXNAMELEN)
-		return -ENAMETOOLONG;
-	
+	od->od_ino = entry_ino;	
 	// Initialize the name of the directory entry.
-	memcpy(dir_entry->od_name, dentry->d_name.name, dentry->d_name.len);
-
+	memcpy(od->od_name, dentry->d_name.name, dentry->d_name.len);
 	// Make the dir entry name null-byte terminated.
-	dir_entry->od_name[dentry->d_name.len] = '\0';	
+	od->od_name[dentry->d_name.len] = '\0';	
 	
-	// Initialize the inode.
-	ospfs_inode_t *ino = ospfs_inode(dir_entry->od_ino);
-	memset(ino, 0, OSPFS_BLKSIZE);
+	//Populate the inode
+	ospfs_inode_t *ino = ospfs_inode(od->od_ino);
+	memset(ino, 0, OSPFS_INODESIZE);
 	ino->oi_ftype = OSPFS_FTYPE_REG;
 	ino->oi_nlink++;
 	ino->oi_mode = mode;
