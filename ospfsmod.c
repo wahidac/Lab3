@@ -420,6 +420,9 @@ ospfs_dir_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *ign
 //
 //   EXERCISE: Finish implementing this function.
 
+
+//FIX:remove these
+/*
 static int
 add_block(ospfs_inode_t *oi);
 static uint32_t
@@ -430,7 +433,7 @@ static int
 remove_block(ospfs_inode_t *oi);
 static int
 change_size(ospfs_inode_t *oi, uint32_t new_size);
-
+*/
 
 
 static int
