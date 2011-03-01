@@ -422,30 +422,42 @@ ospfs_dir_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *ign
 
 static int
 add_block(ospfs_inode_t *oi);
+static uint32_t
+allocate_block(void);
+static void
+free_block(uint32_t blockno);
+static int
+remove_block(ospfs_inode_t *oi);
+static int
+change_size(ospfs_inode_t *oi, uint32_t new_size);
+
 
 
 static int
 ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
 
+       //FIX: testing code
+
        /* Begin testing code */
-    //   //size changed? blocks in bitmap changed?
+  /*
        int block;
        struct inode *de = filp->f_dentry->d_inode;
        ospfs_inode_t *oi = ospfs_inode(de->i_ino);
-       
+      
+       change_size(oi,43);
+       printk("Size of directory before add_block:%d\n",oi->oi_size);
        block = add_block(oi);
+       printk("Size of directory after add_block:%d\n",oi->oi_size);
+       change_size(oi,3072);
+       printk("Size of directory after change_size:%d\n",oi->oi_size);
+       remove_block(oi);
+       printk("Size of directory after remove_block:%d\n\n",oi->oi_size);
+      // int a = allocate_block();
+     //  free_block(a);
+     //  free_block(block)
   //     printk("Allocated block
-
-
-
-
-
-
-
-
-
-
+*/
         /* End testing code */
 
 
@@ -524,7 +536,7 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
                          case OSPFS_FTYPE_SYMLINK:
                              entry_type = DT_LNK;
                              break;
-                         default: //FIX:return some error number
+                         default:
                              eprintk("Invalid Directory Entry Type!");
                              return -EINVAL;
                      }
@@ -579,7 +591,10 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 
 	od->od_ino = 0;
 	oi->oi_nlink--;
-	return 0;
+        if(oi->oi_nlink == 0 && oi->oi_ftype != OSPFS_FTYPE_SYMLINK) 
+            return change_size(oi,0); //Free all blocks associate w/ the file
+        else
+            return 0;
 }
 
 
@@ -644,7 +659,6 @@ allocate_block(void)
 //   number isn't obviously bogus: the boot sector, superblock, free-block
 //   bitmap, and inode blocks must never be freed.  But this is not required.)
 
-//FIX: test to make sure this works
 
 static void
 free_block(uint32_t blockno)
@@ -685,8 +699,7 @@ free_block(uint32_t blockno)
 
 static int32_t
 indir2_index(uint32_t b)
-{       //FIX: why is it OSPFS_MAXFILKEBLKS -1 ??? why not just OSPFS_MAXFILEBLKS
-	//if(b >= OSPFS_NDIRECT + OSPFS_NINDIRECT && b < OSPFS_MAXFILEBLKS - 1)
+{       
         if(b >= OSPFS_NDIRECT + OSPFS_NINDIRECT && b < OSPFS_MAXFILEBLKS)
 		return 0;
 	else 		
@@ -709,11 +722,8 @@ static int32_t
 indir_index(uint32_t b)
 {
 	if(b >= OSPFS_NDIRECT && b < OSPFS_NINDIRECT + OSPFS_NDIRECT)
-		return 0;  //FIX: why is it OSPFS_MAXFILEBLKS - 1???
-//	else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS - 1) 
+		return 0; 
         else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
-                //FIX: arithmetic precedence ahhhhhhhh!!!
-		//return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) / OSPFS_NINDIRECT;
                 return ( b - (OSPFS_NINDIRECT + OSPFS_NDIRECT) )/ OSPFS_NINDIRECT;
 	else
 		return -1;
@@ -736,11 +746,7 @@ direct_index(uint32_t b)
 		return b;
 	else if(b >= OSPFS_NDIRECT && b < OSPFS_NINDIRECT + OSPFS_NDIRECT)
 		return b - OSPFS_NDIRECT;
-        //FIX: wrong inequaltiy ahhhhhhh!!! 
-	//else if(b > OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
         else if(b >= OSPFS_NINDIRECT + OSPFS_NDIRECT && b < OSPFS_MAXFILEBLKS)
-        //FIX: arithmetic precedence ahhhhhhhh!!
-		//return (b - OSPFS_NINDIRECT + OSPFS_NDIRECT) % OSPFS_NDIRECT + OSPFS_NINDIRECT;
                 return ( b - ( OSPFS_NINDIRECT + OSPFS_NDIRECT ) ) 
                             % ( OSPFS_NINDIRECT + OSPFS_NDIRECT );
 	else
@@ -790,8 +796,6 @@ add_block(ospfs_inode_t *oi)
 		return -EIO;
 
 	// keep track of allocations to free in case of -ENOSPC
-	//uint32_t *allocated[3] = { 0, 0, 0};
-        //FIX: why would we want allocated to store a pointer??? allocate_block DOES NOT return one!!
         uint32_t allocated[3] = { 0, 0, 0};
 	// First, we check to see if we can add a direct block.
 	if(n < OSPFS_NDIRECT) {
@@ -799,11 +803,9 @@ add_block(ospfs_inode_t *oi)
 		// Attempt to allocate a new block.
 		allocated[0] = allocate_block();
 
-                printk("Allocated this:%u\n",allocated[0]);
 		
 		// Return error indicating no space left if allocation failed.
 		if(!allocated[0]) {
-                        printk("NOOO! OUT OF ROOM!"); //FIX:Remove in final
 			return -ENOSPC;
                 }
 		// Otherwise, we add our new block.
@@ -821,7 +823,6 @@ add_block(ospfs_inode_t *oi)
 
 		// Check to see if a valid index was returned.
 		if(direct_index(n) < 0) {
-                        printk("NEE"); //FIX:remove me
 			return -EIO;
                 }
 
@@ -842,7 +843,6 @@ add_block(ospfs_inode_t *oi)
 				indir_block_contents[direct_index(n)] = (uint32_t) allocated[0];
 			}
 			else   { 
-                                printk("YEE"); //FIX:Remove me
 				return -ENOSPC;
                         }
 		}
@@ -1017,9 +1017,13 @@ add_block(ospfs_inode_t *oi)
 		return -EIO;
 
 	// Update the oi->oi_size field since we added a new block.
-	oi->oi_size += OSPFS_BLKSIZE;
-	
+        if(oi->oi_size % OSPFS_BLKSIZE)
+		oi->oi_size += ( OSPFS_BLKSIZE - oi->oi_size % OSPFS_BLKSIZE ) + OSPFS_BLKSIZE;
+	else
+		oi->oi_size += OSPFS_BLKSIZE;
+
 	// Indicate successful return.
+        
 	return 0;
 }
 
@@ -1082,8 +1086,6 @@ remove_block(ospfs_inode_t *oi)
 		// It's necessary to check if we should delloacate this indirect block pointer
 		// if it happens to become empty after removing a block.
 
-                //FIX: Why would we want to do this??
-		//if(!indir_index(n - 1)) {
                 if(indir_index(n-2) < 0) { //After removing block, still need indirect block?
 			free_block(oi->oi_indirect);
 			oi->oi_indirect = 0;
@@ -1095,10 +1097,7 @@ remove_block(ospfs_inode_t *oi)
 	
 		// First, we need to check for valid indexing into indirect
 		// and direct block pointers.
-                //FIX: why would we check whether 'n' value is valid? and not n-1?
-		//if(indir_index(n) < 0 || direct_index(n) < 0)
                  if(indir_index(n-1) < 0 || direct_index(n-1) < 0)
-
 			return -EIO;
 		
 		// Next, we must check if the doubly-indirect pointer exists.
@@ -1115,14 +1114,12 @@ remove_block(ospfs_inode_t *oi)
 		// a doubly-indirect block or indirect block pointer points to nothing.  If so,
 		// we deallocate that block pointer.
 
-                //FIX: why would we make this check?? need a different one
-
 		if(!direct_index(n - 1)) {
-			free_block(oi->oi_indirect);
-			oi->oi_indirect = 0;
+                        free_block(indir_block_contents[indir_index(n - 1)]);
+                        indir_block_contents[indir_index(n - 1)] = 0; //Mark pos in double indirect block to 0
 	
 			// Check to see if this block was the last one pointed to by the doubly-indirect block pointer.
-			if(!indir_index(n - 1)) {
+                        if(indir2_index(n - 2) < 0) {
 				free_block(oi->oi_indirect2);
 				oi->oi_indirect2 = 0;
 			}
@@ -1302,7 +1299,12 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
+                uint32_t blk_off = 0; //Offset within an invidual block?
+                uint32_t blk_bytes_to_read = 0; //How many bytes can we read in a block?
+                uint32_t bytes_to_read;
 		char *data;
+                char *current_data_offset;
+                
 
 		// ospfs_inode_blockno returns 0 on error
 		if (blockno == 0) {
@@ -1310,38 +1312,43 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 			goto done;
 		}
 
-		data = ospfs_block(blockno);
+		data = ospfs_block(blockno); //Base address
+                current_data_offset = ospfs_inode_data(oi, *f_pos);
+                blk_off = (uint32_t) current_data_offset - (uint32_t) data;
 
 		// Figure out how much data is left in this block to read.
 		// Copy data into user space. Return -EFAULT if unable to write
 		// into user space.
 		// Use variable 'n' to track number of bytes moved.
-		/* EXERCISE: Your code here */
-		
-		// Check if what we're trying to read is less than OSPFS_BLKSIZE (1024 bytes).
-		if(count - amount < OSPFS_BLKSIZE) {
+
+                //The following variable keeps track of how many bytes are safe to
+                //read in one single block
+                blk_bytes_to_read = OSPFS_BLKSIZE - blk_off;  
+                bytes_to_read = count - amount; //How many bytes left to read?
+
+
+                //Can we read in one shot?
+		if( bytes_to_read <= blk_bytes_to_read) {
 			
 			// Check if copy_to_user function was successful or not.
 			// 0 indicates success.  Otherwise, some bytes were not read.  
-			if(copy_to_user(buffer, data, count - amount)) {
+			if(copy_to_user(buffer, data + blk_off, bytes_to_read)) {
 				retval = -EFAULT;
 				goto done;
 			}
 			else
-				n = count - amount;
 		}
-		// Otherwise, just read in OSPFS_BLKSIZE amount of data.
+		// Otherwise, just read in blk_bytes_to_read
 		else {
-		
 			// Check if copy_to_user function was successful or not.
 			// 0 indicates success.  Otherwise, some bytes were not read.  
-			if(copy_to_user(buffer, data, OSPFS_BLKSIZE)) {
+			if(copy_to_user(buffer, data + blk_off, blk_bytes_to_read)) {
 				retval = -EFAULT;
 				goto done;
 			}
 			else
-				n = OSPFS_BLKSIZE; 
-		}
+				n = blk_bytes_to_read;
+		}  
 
 		buffer += n;
 		amount += n;
@@ -1495,7 +1502,6 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
         if(success < 0) //Could not free anymore blocks
             return ERR_PTR(-success);
 
-        //FIX: make sure that add_block function zeroes everything out!!!
         ospfs_direntry_t *od = ospfs_inode_data(dir_oi, off); 
         
         //The very first directory entry in the newly allocated block should be empty
