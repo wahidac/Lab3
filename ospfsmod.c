@@ -1387,36 +1387,70 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
+        int append = 0; //Is the append operation being used?
 
 	// Support files opened with the O_APPEND flag.  To detect O_APPEND,
 	// use struct file's f_flags field and the O_APPEND bit.
 	/* EXERCISE: Your code here */
+        if( (filp->f_flags & O_APPEND) != 0 ) {
+            //Move file pointer to 1 + last character in file
+            *f_pos = oi->oi_size; 
+        }
 
 	// If the user is writing past the end of the file, change the file's
 	// size to accomodate the request.  (Use change_size().)
 	/* EXERCISE: Your code here */
-
+        uint32_t free_space = oi->oi_size - *f_pos; //How many bytes can we write? 
+        if( free_space < count ) { //We need to allocate memory
+            uint32_t bytes_to_add = count - free_space;
+            change_size(oi, oi->oi_size + bytes_to_add);
+        }
+        
 	// Copy data block by block
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
+                uint32_t blk_off = 0; //Offset within an invidual block?
+                uint32_t blk_bytes_to_write = 0; //How many bytes can we read in a block?
+                uint32_t bytes_to_write;
 		char *data;
+                char *current_data_offset;
+                
 
 		if (blockno == 0) {
 			retval = -EIO;
 			goto done;
 		}
 
-		data = ospfs_block(blockno);
+		data = ospfs_block(blockno); //Base address
+                current_data_offset = ospfs_inode_data(oi, *f_pos);
+                blk_off = (uint32_t) current_data_offset - (uint32_t) data;
 
 		// Figure out how much data is left in this block to write.
 		// Copy data from user space. Return -EFAULT if unable to read
 		// read user space.
 		// Keep track of the number of bytes moved in 'n'.
 		/* EXERCISE: Your code here */
-		retval = -EIO; // Replace these lines
-		goto done;
+                blk_bytes_to_write = OSPFS_BLKSIZE - blk_off;
+                bytes_to_write = count - amount; //How many bytes are left to write?
 
+                //Can we write everything in one shot?
+                if( bytes_to_write <= blk_bytes_to_write ) {
+                    if( copy_from_user(data + blk_off, buffer, bytes_to_write) ) {
+                        retval = -EFAULT;
+                        goto done;
+                    }
+                    else
+                        n = bytes_to_write;
+                } else { //Just write blk_bytes_to_write bytes
+                    if( copy_from_user(data + blk_off, buffer, blk_bytes_to_write) ) {
+                        retval = -EFAULT;
+                        goto done;
+                    }
+                    else
+                        n = blk_bytes_to_write;
+                }
+  
 		buffer += n;
 		amount += n;
 		*f_pos += n;
@@ -1425,7 +1459,6 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
     done:
 	return (retval >= 0 ? amount : retval);
 }
-
 
 // find_direntry(dir_oi, name, namelen)
 //	Looks through the directory to find an entry with name 'name' (length
