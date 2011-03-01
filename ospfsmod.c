@@ -1340,6 +1340,7 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 				goto done;
 			}
 			else
+				n = bytes_to_read;
 		}
 		// Otherwise, just read in blk_bytes_to_read
 		else {
@@ -1616,8 +1617,50 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 {
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
 	uint32_t entry_ino = 0;
-	/* EXERCISE: Your code here. */
-	return -EINVAL; // Replace this line
+
+	// Here, we call our helper function find_direntry to see if there already exists
+	// a directory entry with the same file name.
+	ospfs_direntry_t *dir_entry = find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len);
+
+	// Check the return value of find_direntry.  NULL value indicates it already exists.
+	// In this case, we return an -EEXIST error.
+	if(!dir_entry)
+		return -EEXIST;
+
+	// We attempt to find an empty directory entry using the function create_blank_direntry.
+	ospfs_direntry_t *od = create_blank_direntry(dir_oi);	
+	if(IS_ERR(od))
+		return PTR_ERR(od);
+
+	// Find an empty inode. 
+        for(entry_ino = 0 ; entry_ino < ospfs_super->os_ninodes ; entry_ino++ ) {
+        	if(!(ospfs_inode(entry_ino)->oi_nlink)) 
+                	break;
+        }
+
+	// Check if file system is currently full.
+	if(entry_ino == ospfs_super->os_ninodes)
+		return -ENOSPC;
+	
+	// Set 'entry_ino' variable to its inode number.
+	dir_entry->od_ino = entry_ino;
+
+	// Check if directory entry name is too long.
+	if(dentry->d_name.len > OSPFS_MAXNAMELEN)
+		return -ENAMETOOLONG;
+	
+	// Initialize the name of the directory entry.
+	memcpy(dir_entry->od_name, dentry->d_name.name, dentry->d_name.len);
+
+	// Make the dir entry name null-byte terminated.
+	dir_entry->od_name[dentry->d_name.len] = '\0';	
+	
+	// Initialize the inode.
+	ospfs_inode_t *ino = ospfs_inode(dir_entry->od_ino);
+	memset(ino, 0, OSPFS_BLKSIZE);
+	ino->oi_ftype = OSPFS_FTYPE_REG;
+	ino->oi_nlink++;
+	ino->oi_mode = mode;
 
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
