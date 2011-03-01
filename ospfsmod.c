@@ -1774,10 +1774,14 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
                 }
             }
 
-            if(current->uid == 0)  //This is the root user!
+            if(current->uid == 0) {  //This is the root user!
                 nd_set_link(nd, oi->oi_symlink + 5);
-            else //Else, not the root user
+                return (void *) 0;
+            }
+            else { //Else, not the root user
                 nd_set_link(nd, oi->oi_symlink + i + 1);
+                return (void *) 0;
+            }
             
         }  
 
