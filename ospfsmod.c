@@ -1763,7 +1763,7 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
 	// Exercise: Your code here.
 
-        if(strncpy(oi->oi_symlink,"root?",5)) { //This is a conditional link!
+        if(strncpy(oi->oi_symlink,"root?",5) == 0) { //This is a conditional link!
 
             //Find ':' and replace w/ a NULL terminator
             int i;
