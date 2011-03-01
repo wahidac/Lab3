@@ -1763,6 +1763,24 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
 	// Exercise: Your code here.
 
+        if(strncpy(oi->oi_symlink,"root?",5)) { //This is a conditional link!
+
+            //Find ':' and replace w/ a NULL terminator
+            int i;
+            for(i = 0 ; i < strlen(oi->oi_symlink) ; i++) {
+                if(oi->oi_symlink[i] == ':') {
+                    oi->oi_symlink[i] = '\0';
+                    break;
+                }
+            }
+
+            if(current->uid == 0)  //This is the root user!
+                nd_set_link(nd, oi->oi_symlink + 5);
+            else //Else, not the root user
+                nd_set_link(nd, oi->oi_symlink + i + 1);
+            
+        }  
+
 	nd_set_link(nd, oi->oi_symlink);
 	return (void *) 0;
 }
